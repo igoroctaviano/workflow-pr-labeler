@@ -74,9 +74,7 @@ async function run() {
         }
       })
     }
-    if (promises.length) {
-      await Promise.all(promises)
-    }
+    await Promise.all(promises)
 
     console.log('Github context:', github.context.payload)
     console.log('PR info:', prInfo)
