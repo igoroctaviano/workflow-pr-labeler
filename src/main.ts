@@ -1,5 +1,5 @@
 import * as core from '@actions/core'
-import * as github from '@actions/github' //
+import * as github from '@actions/github'
 import * as _ from 'lodash'
 import * as yaml from 'js-yaml'
 import * as fs from 'fs'
@@ -15,7 +15,16 @@ type Label = {
 
 type PRInfo = {
   nodeId: string
-  state: 'commented' | 'approved' | 'changes_requested'
+  reviewState:
+    | 'commented'
+    | 'approved'
+    | 'changes_requested'
+    | 'dismissed'
+    | 'pending' /** PullRequestReviewState */
+  state: 'merged' | 'closed' | 'open' /** PullRequestState */
+  merged: boolean
+  assignees: []
+  assignee: string
   labels: Label[]
   repoName: string
 }
@@ -35,72 +44,118 @@ async function run() {
     const token = core.getInput('GITHUB_TOKEN', { required: true })
     const configPath = core.getInput('CONFIG_PATH', { required: true })
 
-    const configObj: any = yaml.safeLoad(
-      fs.readFileSync(configPath, 'utf8')
-    )
-
+    const configObj: any = yaml.safeLoad(fs.readFileSync(configPath, 'utf8'))
     if (!configObj) {
-      console.log('There is no configuration to set the labels')
+      core.setFailed('There is no configuration to set the labels')
       return
     }
 
     const prInfo = getPRInfo()
-
     if (!prInfo) {
-      console.log("There's no info for this PR")
       return
     }
 
     const client = new github.GitHub(token)
     const labels = await getLabels(client, prInfo.repoName)
-
     if (!labels.length) {
-      console.log('There are no labels in this project')
+      core.setFailed('There are no labels in this project')
       return
     }
 
-    let githubAction
-    if (prInfo.state === 'commented' && configObj.onComment) {
-      githubAction = configObj.onComment
-    } else if (prInfo.state === 'approved' && configObj.onApproved) {
-      githubAction = configObj.onApproved
-    } else if (prInfo.state === 'changes_requested' && configObj.onChangesRequested) {
-      githubAction = configObj.onChangesRequested
+    const existentLabels = labels.map((l) => l.name)
+    const [owner, repo] = prInfo.repoName.split('/')
+    if (configObj.createLabels && configObj.createLabels.length) {
+      configObj.createLabels.forEach((label) => {
+        if (!existentLabels.includes(label.name)) {
+          console.log(`Creating label: ${label.name}`)
+          client.issues.createLabel({ ...label, owner, repo })
+        }
+      })
     }
 
-    const {
-      selectedLabelsToAssign,
-      selectedLabelsToRemove,
-    } = getLabelsIdsToMutate(githubAction, labels)
+    console.log('Github context:', github.context.payload)
+    console.log('PR info:', prInfo)
+
+    let githubActions: PRAction[] = []
+    if (prInfo.reviewState === 'commented' && configObj.onComment) {
+      githubActions.push(configObj.onComment)
+    }
+    if (prInfo.state === 'open' && configObj.onOpen) {
+      githubActions.push(configObj.onOpen)
+    }
+    if (prInfo.merged === true && configObj.onMerge) {
+      githubActions.push(configObj.onMerge)
+    }
+    if (
+      prInfo.merged !== true &&
+      prInfo.state === 'closed' &&
+      configObj.onClose
+    ) {
+      githubActions.push(configObj.onClose)
+    }
+    if (prInfo.reviewState === 'approved' && configObj.onApprove) {
+      githubActions.push(configObj.onApprove)
+    }
+    if (
+      prInfo.reviewState === 'changes_requested' &&
+      configObj.onChangeRequest
+    ) {
+      githubActions.push(configObj.onChangeRequest)
+    }
+
+    if (!githubActions) {
+      core.setFailed('There is no configuration for this action')
+      return
+    }
+
+    console.log(
+      'PR current actions based on pull request and review state:',
+      githubActions
+    )
+
+    const { selectedLabelsToAssign, selectedLabelsToRemove } =
+      getLabelsIdsToMutate(githubActions, labels)
 
     if (!(client && prInfo.nodeId && selectedLabelsToAssign.length)) {
-      console.log('There was an error')
+      core.setFailed(`There was an error`)
       return
     }
 
-    await removeLabelsFromLabelable(
-      client,
-      prInfo.nodeId,
-      selectedLabelsToRemove
-    )
-    await addLabelsToLabelable(client, prInfo.nodeId, selectedLabelsToAssign)
+    if (selectedLabelsToRemove && selectedLabelsToRemove.length) {
+      console.log('Removing labels:', selectedLabelsToRemove)
+      await removeLabelsFromLabelable(
+        client,
+        prInfo.nodeId,
+        selectedLabelsToRemove
+      )
+    }
+
+    if (selectedLabelsToAssign && selectedLabelsToAssign.length) {
+      console.log('Assigning labels:', selectedLabelsToAssign)
+      await addLabelsToLabelable(client, prInfo.nodeId, selectedLabelsToAssign)
+    }
   } catch (error) {
-    core.error(error)
     core.setFailed(error.message)
   }
+  console.log('Done!')
 }
 
 function getPRInfo(): PRInfo | undefined {
   const pr = github.context.payload.pull_request
   const review = github.context.payload.review
   const repo = github.context.payload.repository
-  if (!(pr && review && repo && repo.full_name)) {
+
+  if (!(pr && repo && repo.full_name)) {
     return
   }
 
   return {
     nodeId: pr.node_id,
-    state: review.state,
+    state: pr.state,
+    merged: pr.merged,
+    assignees: pr.assignees,
+    assignee: pr.assignees,
+    reviewState: review ? review.state : null,
     labels: pr.labels,
     repoName: repo.full_name,
   }
@@ -134,26 +189,30 @@ async function getLabels(
 }
 
 function getLabelsIdsToMutate(
-  action: PRAction,
+  actions: PRAction[],
   labels: Pick<Label, 'name' | 'id'>[]
 ): LabelsIdsToMutate {
-  let selectedLabelsToAssign
-  let selectedLabelsToRemove
+  let selectedLabelsToAssign: string[] = []
+  let selectedLabelsToRemove: string[] = []
+  actions.forEach((action) => {
+    if (action.set) {
+      selectedLabelsToAssign = selectedLabelsToAssign.concat(
+        _.chain(labels)
+          .filter((label) => action.set!.includes(label.name))
+          .map('id')
+          .value()
+      )
+    }
 
-  if (action.set) {
-    selectedLabelsToAssign = _.chain(labels)
-      .filter((label) => action.set!.includes(label.name))
-      .map('id')
-      .value()
-  }
-
-  if (action.remove) {
-    selectedLabelsToRemove = _.chain(labels)
-      .filter((label) => action.remove!.includes(label.name))
-      .map('id')
-      .value()
-  }
-
+    if (action.remove) {
+      selectedLabelsToRemove = selectedLabelsToRemove.concat(
+        _.chain(labels)
+          .filter((label) => action.remove!.includes(label.name))
+          .map('id')
+          .value()
+      )
+    }
+  })
   return {
     selectedLabelsToAssign,
     selectedLabelsToRemove,
