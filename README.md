@@ -6,43 +6,70 @@ Update and assign pull request labels given configuration
 
 ## Create a config file in the root of your project
 ```yml
+createLabels:
+  - name: Approved
+    description: Approved
+    color: '#01AEEB'
+  - name: Changes Requested
+    description: Approved
+    color: '#01AEEB'
+  - name: Comment
+    description: Approved
+    color: '#01AEEB'
+  - name: Open
+    description: Open
+    color: '#01AEEB'
+  - name: Closed
+    description: Closed
+    color: '#01AEEB'
+  - name: Merged
+    description: Merged
+    color: '#01AEEB'
+
 onComment:
   remove:
-    - Changes Requested
     - Approved
+    - Changes Requested
   set:
-    - Commented
+    - Comment
 
 onApprove:
   remove:
-    - Commented
+    - Comment
     - Changes Requested
-    - Work in progress
   set:
-    - First review
-    - Ready to merge
-
-onOpen:
-  set:
-    - Work in progress
-
-onClosed:
-  set:
-    - Closed
-
-onMerged:
-  remove:
-    - Work in progress
-    - Closed
-  set:
-    - Merged
+    - Approved
 
 onChangeRequest:
   remove:
+    - Comment
     - Approved
-    - Commented
   set:
-    - Ready to merge
+    - Changes Requested
+
+onOpen:
+  set:
+    - Open
+
+onMerge:
+  remove:
+    - Closed
+    - Open
+    - Comment
+    - Approved
+    - Changes Requested
+  set:
+    - Merged
+
+onClose:
+  remove:
+    - Merged
+    - Open
+    - Comment
+    - Approved
+    - Changes Requested
+  set:
+    - Closed
 ```
 
 ## Create a workflow:
