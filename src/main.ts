@@ -78,15 +78,11 @@ async function run() {
     console.log('PR info:', prInfo)
 
     let githubActions: PRAction[] = []
+    if (prInfo.state === 'open' && configObj.onOpen) {
+      githubActions.push(configObj.onOpen)
+    }
     if (prInfo.reviewState === 'commented' && configObj.onComment) {
       githubActions.push(configObj.onComment)
-    }
-    if (
-      prInfo.state === 'open' &&
-      !prInfo.requested_reviewers.length &&
-      configObj.onOpen
-    ) {
-      githubActions.push(configObj.onOpen)
     }
     if (prInfo.merged === true && configObj.onMerge) {
       githubActions.push(configObj.onMerge)
