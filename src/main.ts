@@ -78,6 +78,15 @@ async function run() {
     if (prInfo.reviewState === 'commented' && configObj.onComment) {
       githubAction = configObj.onComment
     }
+    if (prInfo.reviewState === 'approved' && configObj.onApprove) {
+      githubAction = configObj.onApprove
+    }
+    if (
+      prInfo.reviewState === 'changes_requested' &&
+      configObj.onChangeRequest
+    ) {
+      githubAction = configObj.onChangeRequest
+    }
     if (prInfo.merged === true && configObj.onMerge) {
       githubAction = configObj.onMerge
     }
@@ -87,15 +96,6 @@ async function run() {
       configObj.onClose
     ) {
       githubAction = configObj.onClose
-    }
-    if (prInfo.reviewState === 'approved' && configObj.onApprove) {
-      githubAction = configObj.onApprove
-    }
-    if (
-      prInfo.reviewState === 'changes_requested' &&
-      configObj.onChangeRequest
-    ) {
-      githubAction = configObj.onChangeRequest
     }
 
     if (!githubAction) {
