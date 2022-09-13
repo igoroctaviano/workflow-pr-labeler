@@ -57,21 +57,26 @@ async function run() {
     }
 
     const client = new github.GitHub(token)
-    const labels = await getLabels(client, prInfo.repoName)
+    let labels = await getLabels(client, prInfo.repoName)
     if (!labels.length) {
       core.setFailed('There are no labels in this project')
       return
     }
 
+    const promises: Promise<any>[] = []
     const existentLabels = labels.map((l) => l.name)
     const [owner, repo] = prInfo.repoName.split('/')
     if (configObj.createLabels && configObj.createLabels.length) {
       configObj.createLabels.forEach((label) => {
         if (!existentLabels.includes(label.name)) {
           console.log(`Creating label: ${label.name}`)
-          client.issues.createLabel({ ...label, owner, repo })
+          promises.push(client.issues.createLabel({ ...label, owner, repo }))
         }
       })
+    }
+    if (promises.length) {
+      await Promise.all(promises)
+      labels = await getLabels(client, prInfo.repoName)
     }
 
     console.log('Github context:', github.context.payload)
