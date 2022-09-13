@@ -78,6 +78,9 @@ async function run() {
     console.log('PR info:', prInfo)
 
     let githubActions: PRAction[] = []
+    if (prInfo.reviewState === 'pending' && configObj.onReviewPending) {
+      githubActions.push(configObj.onReviewPending)
+    }
     if (prInfo.state === 'open' && configObj.onOpen) {
       githubActions.push(configObj.onOpen)
     }
