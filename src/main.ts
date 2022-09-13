@@ -57,7 +57,7 @@ async function run() {
     }
 
     const client = new github.GitHub(token)
-    let labels = await getLabels(client, prInfo.repoName)
+    const labels = await getLabels(client, prInfo.repoName)
     if (!labels.length) {
       core.setFailed('There are no labels in this project')
       return
@@ -76,7 +76,6 @@ async function run() {
     }
     if (promises.length) {
       await Promise.all(promises)
-      labels = await getLabels(client, prInfo.repoName)
     }
 
     console.log('Github context:', github.context.payload)
