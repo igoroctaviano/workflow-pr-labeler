@@ -68,48 +68,48 @@ async function run() {
     console.log('Github context:', github.context.payload)
     console.log('PR info:', prInfo)
 
-    let githubActions: PRAction[] = []
+    let githubAction
     if (prInfo.state === 'open' && configObj.onOpen) {
-      githubActions.push(configObj.onOpen)
+      githubAction = configObj.onOpen
     }
     if (prInfo.reviewState === 'pending' && configObj.onReviewPending) {
-      githubActions.push(configObj.onReviewPending)
+      githubAction = configObj.onReviewPending
     }
     if (prInfo.reviewState === 'commented' && configObj.onComment) {
-      githubActions.push(configObj.onComment)
+      githubAction = configObj.onComment
     }
     if (prInfo.merged === true && configObj.onMerge) {
-      githubActions.push(configObj.onMerge)
+      githubAction = configObj.onMerge
     }
     if (
       prInfo.merged !== true &&
       prInfo.state === 'closed' &&
       configObj.onClose
     ) {
-      githubActions.push(configObj.onClose)
+      githubAction = configObj.onClose
     }
     if (prInfo.reviewState === 'approved' && configObj.onApprove) {
-      githubActions.push(configObj.onApprove)
+      githubAction = configObj.onApprove
     }
     if (
       prInfo.reviewState === 'changes_requested' &&
       configObj.onChangeRequest
     ) {
-      githubActions.push(configObj.onChangeRequest)
+      githubAction = configObj.onChangeRequest
     }
 
-    if (!githubActions) {
+    if (!githubAction) {
       core.setFailed('There is no configuration for this action')
       return
     }
 
     console.log(
       'PR current actions based on pull request and review state:',
-      githubActions
+      githubAction
     )
 
     const { selectedLabelsToAssign, selectedLabelsToRemove } =
-      getLabelsIdsToMutate(githubActions, labels)
+      getLabelsIdsToMutate(githubAction, labels)
 
     if (!(client && prInfo.nodeId)) {
       core.setFailed(`There was an error`)
@@ -211,30 +211,25 @@ async function getLabels(
 }
 
 function getLabelsIdsToMutate(
-  actions: PRAction[],
+  action: PRAction,
   labels: Pick<Label, 'name' | 'id'>[]
 ): LabelsIdsToMutate {
   let selectedLabelsToAssign: string[] = []
   let selectedLabelsToRemove: string[] = []
-  actions.forEach((action) => {
-    if (action.set) {
-      selectedLabelsToAssign = selectedLabelsToAssign.concat(
-        _.chain(labels)
-          .filter((label) => action.set!.includes(label.name))
-          .map('id')
-          .value()
-      )
-    }
 
-    if (action.remove) {
-      selectedLabelsToRemove = selectedLabelsToRemove.concat(
-        _.chain(labels)
-          .filter((label) => action.remove!.includes(label.name))
-          .map('id')
-          .value()
-      )
-    }
-  })
+  if (action.set) {
+    selectedLabelsToAssign = _.chain(labels)
+      .filter((label) => action.set!.includes(label.name))
+      .map('id')
+      .value()
+  }
+
+  if (action.remove) {
+    selectedLabelsToRemove = _.chain(labels)
+      .filter((label) => action.remove!.includes(label.name))
+      .map('id')
+      .value()
+  }
   return {
     selectedLabelsToAssign,
     selectedLabelsToRemove,
