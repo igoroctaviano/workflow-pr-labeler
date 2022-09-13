@@ -156,7 +156,7 @@ const createLabels = async (client, configObj, labels, prInfo) => {
       )
     }
   } catch (error) {
-    console.log(error)
+    console.log('Failed to create labels:', error)
     core.setFailed(error.message)
   }
 }
