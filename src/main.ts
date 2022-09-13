@@ -24,6 +24,7 @@ type PRInfo = {
   state: 'merged' | 'closed' | 'open' /** PullRequestState */
   merged: boolean
   assignees: []
+  requested_reviewers: []
   assignee: string
   labels: Label[]
   repoName: string
@@ -80,7 +81,11 @@ async function run() {
     if (prInfo.reviewState === 'commented' && configObj.onComment) {
       githubActions.push(configObj.onComment)
     }
-    if (prInfo.state === 'open' && configObj.onOpen) {
+    if (
+      prInfo.state === 'open' &&
+      !prInfo.requested_reviewers.length &&
+      configObj.onOpen
+    ) {
       githubActions.push(configObj.onOpen)
     }
     if (prInfo.merged === true && configObj.onMerge) {
@@ -155,6 +160,7 @@ function getPRInfo(): PRInfo | undefined {
     merged: pr.merged,
     assignees: pr.assignees,
     assignee: pr.assignees,
+    requested_reviewers: pr.requested_reviewers,
     reviewState: review ? review.state : null,
     labels: pr.labels,
     repoName: repo.full_name,
