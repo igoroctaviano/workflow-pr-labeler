@@ -120,8 +120,13 @@ async function run() {
     const { selectedLabelsToAssign, selectedLabelsToRemove } =
       getLabelsIdsToMutate(githubActions, labels)
 
-    if (!(client && prInfo.nodeId && selectedLabelsToAssign.length)) {
+    if (!(client && prInfo.nodeId)) {
       core.setFailed(`There was an error`)
+      return
+    }
+
+    if (!selectedLabelsToAssign.length) {
+      console.log('No labels to assign')
       return
     }
 
