@@ -63,18 +63,7 @@ async function run() {
       return
     }
 
-    const promises: Promise<any>[] = []
-    const existentLabels = labels.map((l) => l.name)
-    const [owner, repo] = prInfo.repoName.split('/')
-    if (configObj.createLabels && configObj.createLabels.length) {
-      configObj.createLabels.forEach((label) => {
-        if (!existentLabels.includes(label.name)) {
-          console.log(`Creating label: ${label.name}`)
-          promises.push(client.issues.createLabel({ ...label, owner, repo }))
-        }
-      })
-    }
-    await Promise.all(promises)
+    await createLabels(client, configObj, labels, prInfo)
 
     console.log('Github context:', github.context.payload)
     console.log('PR info:', prInfo)
@@ -149,6 +138,22 @@ async function run() {
     core.setFailed(error.message)
   }
   console.log('Done!')
+}
+
+const createLabels = async (client, configObj, labels, prInfo) => {
+  const promises: Promise<any>[] = []
+  const existentLabels = labels.map((l) => l.name)
+  const [owner, repo] = prInfo.repoName.split('/')
+  if (configObj.createLabels && configObj.createLabels.length) {
+    configObj.createLabels.forEach((label) => {
+      if (!existentLabels.includes(label.name)) {
+        console.log(`Creating label: ${label.name}`)
+        promises.push(client.issues.createLabel({ ...label, owner, repo }))
+      }
+    })
+  }
+  console.log(promises)
+  await Promise.all(promises)
 }
 
 function getPRInfo(): PRInfo | undefined {
