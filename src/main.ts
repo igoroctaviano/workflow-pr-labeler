@@ -137,7 +137,7 @@ async function run() {
   } catch (error) {
     core.setFailed(error.message)
   }
-  console.log('Done!')
+  console.log('Done!', new Date().toISOString())
 }
 
 const createLabels = async (client, configObj, labels, prInfo) => {
