@@ -40,6 +40,8 @@ type LabelsIdsToMutate = {
   selectedLabelsToRemove: string[]
 }
 
+const cache = {}
+
 async function run() {
   try {
     const token = core.getInput('GITHUB_TOKEN', { required: true })
@@ -69,7 +71,12 @@ async function run() {
     console.log('PR info:', prInfo)
 
     let githubAction
-    if (prInfo.state === 'open' && configObj.onOpen) {
+    if (
+      prInfo.state === 'open' &&
+      configObj.onOpen &&
+      cache[prInfo.nodeId] !== true
+    ) {
+      cache[prInfo.nodeId] = true
       githubAction = configObj.onOpen
     }
     if (prInfo.reviewState === 'pending' && configObj.onReviewPending) {
