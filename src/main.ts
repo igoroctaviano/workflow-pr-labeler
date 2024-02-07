@@ -116,7 +116,7 @@ async function run() {
     }
 
     if (!githubAction) {
-      core.setFailed('There is no configuration for this action')
+      console.log('There is no configuration match for this action')
       return
     }
 
