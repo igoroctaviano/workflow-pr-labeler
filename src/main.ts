@@ -4,6 +4,12 @@ import * as _ from 'lodash'
 import * as yaml from 'js-yaml'
 import * as fs from 'fs'
 
+const LOG_PREFIX = '[workflow-pr-labeler]'
+
+function log(message: string, ...args: unknown[]): void {
+  console.log(LOG_PREFIX, message, ...args)
+}
+
 type Label = {
   color: string
   default: boolean
@@ -15,17 +21,19 @@ type Label = {
 
 type PRInfo = {
   nodeId: string
+  /** From payload.review.state when present; null when event has no review (e.g. review_requested) */
   reviewState:
     | 'commented'
     | 'approved'
     | 'changes_requested'
     | 'dismissed'
     | 'pending' /** PullRequestReviewState */
+    | null
   state: 'merged' | 'closed' | 'open' /** PullRequestState */
   merged: boolean
-  assignees: []
-  requested_reviewers: []
-  assignee: string
+  assignees: { login: string }[]
+  requested_reviewers: { login: string }[]
+  assignee: { login: string }[] | undefined
   labels: Label[]
   repoName: string
 }
@@ -65,45 +73,49 @@ async function run() {
 
     await createLabels(client, configObj, labels, prInfo)
 
-    console.log('Github context:', github.context.payload)
-    console.log('PR info:', prInfo)
+    log('GitHub context payload', github.context.payload)
+    log('PR info', prInfo)
+    const payload = github.context.payload as {
+      action?: string
+      pull_request?: { number?: number }
+    }
+    log(
+      `Event: ${payload.action || 'unknown'}, PR #${
+        (payload.pull_request && payload.pull_request.number) || '?'
+      }, state: ${prInfo.state}`
+    )
 
     let githubAction
+    let matchedAction: string | null = null
     if (
       prInfo.state === 'open' &&
       configObj.onOpen &&
       github.context.payload.action === 'opened'
     ) {
-      console.log('onOpen action triggered!', configObj.onOpen)
+      matchedAction = 'onOpen'
       githubAction = configObj.onOpen
     }
     if (prInfo.reviewState === 'pending' && configObj.onReviewPending) {
-      console.log(
-        'onReviewPending action triggered!',
-        configObj.onReviewPending
-      )
+      matchedAction = 'onReviewPending'
       githubAction = configObj.onReviewPending
     }
     if (prInfo.reviewState === 'commented' && configObj.onComment) {
-      console.log('onComment action triggered!', configObj.onComment)
+      matchedAction = 'onComment'
       githubAction = configObj.onComment
     }
     if (prInfo.reviewState === 'approved' && configObj.onApprove) {
-      console.log('onApprove action triggered!', configObj.onApprove)
+      matchedAction = 'onApprove'
       githubAction = configObj.onApprove
     }
     if (
       prInfo.reviewState === 'changes_requested' &&
       configObj.onChangeRequest
     ) {
-      console.log(
-        'onChangeRequest action triggered!',
-        configObj.onChangeRequest
-      )
+      matchedAction = 'onChangeRequest'
       githubAction = configObj.onChangeRequest
     }
     if (prInfo.merged === true && configObj.onMerge) {
-      console.log('onMerge action triggered!', configObj.onMerge)
+      matchedAction = 'onMerge'
       githubAction = configObj.onMerge
     }
     if (
@@ -111,19 +123,30 @@ async function run() {
       prInfo.state === 'closed' &&
       configObj.onClose
     ) {
-      console.log('onClose action triggered!', configObj.onClose)
+      matchedAction = 'onClose'
       githubAction = configObj.onClose
+    }
+    /** Review requested or re-requested: payload has no review, so reviewState is null */
+    const isReviewRequested =
+      github.context.payload.action === 'review_requested' &&
+      prInfo.requested_reviewers.length > 0 &&
+      !prInfo.reviewState
+    if (isReviewRequested && configObj.onReRequestReview) {
+      matchedAction = 'onReRequestReview'
+      githubAction = configObj.onReRequestReview
+    }
+    /** Fallback: treat review_requested as "review pending" if onReRequestReview not set */
+    if (isReviewRequested && !githubAction && configObj.onReviewPending) {
+      matchedAction = 'onReviewPending (review_requested fallback)'
+      githubAction = configObj.onReviewPending
     }
 
     if (!githubAction) {
-      console.log('There is no configuration match for this action')
+      log('No configuration match for this event; skipping label updates')
       return
     }
 
-    console.log(
-      'PR current actions based on pull request and review state:',
-      githubAction
-    )
+    log(`Matched action: ${matchedAction}`)
 
     const { selectedLabelsToAssign, selectedLabelsToRemove } =
       getLabelsIdsToMutate(githubAction, labels)
@@ -133,13 +156,23 @@ async function run() {
       return
     }
 
-    if (!selectedLabelsToAssign.length) {
-      console.log('No labels to assign')
+    const hasRemoval = selectedLabelsToRemove.length > 0
+    const hasAssign = selectedLabelsToAssign.length > 0
+    if (!hasRemoval && !hasAssign) {
+      log('No labels to add or remove for this action')
       return
     }
 
-    if (selectedLabelsToRemove && selectedLabelsToRemove.length) {
-      console.log('Removing labels:', selectedLabelsToRemove)
+    const labelNamesById = (ids: string[]) =>
+      ids
+        .map((id) => {
+          const label = labels.find((l) => l.id === id)
+          return label ? label.name : id
+        })
+        .join(', ')
+
+    if (hasRemoval) {
+      log(`Removing labels: ${labelNamesById(selectedLabelsToRemove)}`)
       await removeLabelsFromLabelable(
         client,
         prInfo.nodeId,
@@ -147,14 +180,14 @@ async function run() {
       )
     }
 
-    if (selectedLabelsToAssign && selectedLabelsToAssign.length) {
-      console.log('Assigning labels:', selectedLabelsToAssign)
+    if (hasAssign) {
+      log(`Adding labels: ${labelNamesById(selectedLabelsToAssign)}`)
       await addLabelsToLabelable(client, prInfo.nodeId, selectedLabelsToAssign)
     }
+    log('Finished successfully')
   } catch (error) {
-    core.setFailed(error.message)
+    core.setFailed(error instanceof Error ? error.message : String(error))
   }
-  console.log('Done!', new Date().toISOString())
 }
 
 const createLabels = async (client, configObj, labels, prInfo) => {
@@ -166,15 +199,15 @@ const createLabels = async (client, configObj, labels, prInfo) => {
       await Promise.all(
         labelsToCreate.map((label) => {
           if (!existentLabels.includes(label.name)) {
-            console.log(`Creating label: ${label.name}`)
+            log(`Creating missing label: ${label.name}`)
             return client.issues.createLabel({ ...label, owner, repo })
           }
         })
       )
     }
   } catch (error) {
-    console.log('Failed to create labels:', error)
-    core.setFailed(error.message)
+    log('Failed to create labels:', error)
+    core.setFailed(error instanceof Error ? error.message : String(error))
   }
 }
 
@@ -191,9 +224,9 @@ function getPRInfo(): PRInfo | undefined {
     nodeId: pr.node_id,
     state: pr.state,
     merged: pr.merged,
-    assignees: pr.assignees,
+    assignees: pr.assignees || [],
     assignee: pr.assignees,
-    requested_reviewers: pr.requested_reviewers,
+    requested_reviewers: pr.requested_reviewers || [],
     reviewState: review ? review.state : null,
     labels: pr.labels,
     repoName: repo.full_name,
@@ -223,8 +256,13 @@ async function getLabels(
     }
   )
 
-  const labels = result.repository.labels.nodes
-  return labels
+  const repository = result.repository
+  if (!repository || !repository.labels || !repository.labels.nodes) {
+    throw new Error(
+      `Could not load labels for repository "${fullName}". Repository may not exist or be inaccessible.`
+    )
+  }
+  return repository.labels.nodes
 }
 
 function getLabelsIdsToMutate(
